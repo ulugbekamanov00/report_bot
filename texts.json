@@ -1,0 +1,28 @@
+{
+  "ru": {
+    "start": "Бот учёта финансов.",
+    "menu_main": "Главное меню",
+    "menu_reports": "Отчёты",
+    "menu_settings": "Настройки",
+    "last_operations": "Последние 10 операций",
+    "export_excel": "Экспорт Excel",
+    "change_language": "Изменить язык",
+    "language_set": "Язык изменён",
+    "no_data": "Нет данных",
+    "saved": "Сохранено",
+    "rate_limit": "Слишком много операций. Подождите несколько секунд."
+  },
+  "uz": {
+    "start": "Moliyaviy hisob bot.",
+    "menu_main": "Asosiy menyu",
+    "menu_reports": "Hisobotlar",
+    "menu_settings": "Sozlamalar",
+    "last_operations": "Oxirgi 10 operatsiya",
+    "export_excel": "Excel yuklash",
+    "change_language": "Tilni o‘zgartirish",
+    "language_set": "Til o‘zgartirildi",
+    "no_data": "Ma'lumot yo'q",
+    "saved": "Saqlandi",
+    "rate_limit": "Juda ko‘p yozuv yuborildi. Bir oz kuting."
+  }
+}

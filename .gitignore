@@ -2,10 +2,12 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+.history
+.env
+venv/
 # C extensions
 *.so
-
+*.sqlite
 # Distribution / packaging
 .Python
 build/
