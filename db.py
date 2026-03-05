@@ -61,6 +61,28 @@ def get_transactions(user_id, start_date=None, end_date=None, t_type=None):
         if end_date:
             query += " AND date(created_at) <= date(?)"
             params.append(end_date)
+        cursor.execute(query, params)
+        return cursor.fetchall()
 
+def last_transactions(user_id, start_date=None, end_date=None, t_type=None, limit = 10):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        query = "SELECT type, amount, description, person, created_at FROM transactions WHERE user_id=?"
+        params = [user_id]
+
+        if t_type:
+            query += " AND type=?"
+            params.append(t_type)
+
+        if start_date:
+            query += " AND date(created_at) >= date(?)"
+            params.append(start_date)
+
+        if end_date:
+            query += " AND date(created_at) <= date(?)"
+            params.append(end_date)
+        query += " ORDER BY created_at DESC LIMIT ? "
+        params.append(limit)
         cursor.execute(query, params)
         return cursor.fetchall()

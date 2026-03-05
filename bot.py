@@ -14,9 +14,9 @@ from telegram.ext import (
     filters
 )
 from config import TOKEN
-from db import init_db, add_transaction, get_transactions
+from db import init_db, add_transaction, get_transactions, last_transactions
 from openpyxl import Workbook
-import tempfile
+import os
 
 
 # --------------------
@@ -151,10 +151,11 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    transactions = get_transactions(
+    transactions = last_transactions(
         user_id,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        limit = 10
     )
 
     if not transactions:
@@ -209,16 +210,16 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for row in transactions:
         ws.append(row)
+    file_name = f"report_{user_id}.xlsx"
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    wb.save(tmp.name)
+    wb.save(file_name)
+
 
     await update.message.reply_document(
-        document=InputFile(tmp.name),
-        filename="finance_report.xlsx"
+        document=file_name
     )
 
-
+    os.remove(file_name)
 # --------------------
 # Main
 # --------------------
