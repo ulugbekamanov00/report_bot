@@ -1,5 +1,6 @@
 import re
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from telegram import (
     Update,
     InputFile,
@@ -17,6 +18,40 @@ from config import TOKEN
 from db import init_db, add_transaction, get_transactions, last_transactions
 from openpyxl import Workbook
 import os
+
+logger = logging.getLogger(__name__)
+
+BTN_REPORT = "📊 Отчёт"
+BTN_REPORT_3_DAYS = "📅 3 дня"
+BTN_REPORT_DEBTS = "📒 Долги 10"
+BTN_REPORT_INCOME = "💰 Доходы 10"
+BTN_EXPORT = "📥 Экспорт Excel"
+
+
+
+def setup_logging():
+    log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    log_file = "logs.txt"
+
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.append(
+            logging.FileHandler(log_file, encoding="utf-8")
+        )
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers
+    )
+
+    if log_level > logging.DEBUG:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("telegram").setLevel(logging.INFO)
 
 
 # --------------------
@@ -61,8 +96,9 @@ def parse_message(text: str):
 
 def main_keyboard():
     keyboard = [
-        [KeyboardButton("📊 Отчёт")],
-        [KeyboardButton("📥 Экспорт Excel")]
+        [KeyboardButton(BTN_REPORT)],
+        [KeyboardButton(BTN_REPORT_3_DAYS), KeyboardButton(BTN_REPORT_DEBTS), KeyboardButton(BTN_REPORT_INCOME)],
+        [KeyboardButton(BTN_EXPORT)]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -90,16 +126,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    logger.info("Message received: user_id=%s", update.effective_user.id)
 
-    if text == "📊 Отчёт":
+    if text == BTN_REPORT:
+        logger.info("Report requested via keyboard: user_id=%s", update.effective_user.id)
         return await report(update, context)
 
-    if text == "📥 Экспорт Excel":
+    if text == BTN_REPORT_3_DAYS:
+        logger.info("Report 3 days requested via keyboard: user_id=%s", update.effective_user.id)
+        return await report_last_days(update, context)
+
+    if text == BTN_REPORT_DEBTS:
+        logger.info("Debt report requested via keyboard: user_id=%s", update.effective_user.id)
+        return await report_debts(update, context)
+
+    if text == BTN_REPORT_INCOME:
+        logger.info("Income report requested via keyboard: user_id=%s", update.effective_user.id)
+        return await report_income(update, context)
+
+    if text == BTN_EXPORT:
+        logger.info("Excel export requested via keyboard: user_id=%s", update.effective_user.id)
         return await export_excel(update, context)
 
     result = parse_message(text)
 
     if not result:
+        logger.warning("Invalid message format: user_id=%s text=%r", update.effective_user.id, text[:120])
         await update.message.reply_text("Неверный формат сообщения.")
         return
 
@@ -112,17 +164,121 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         description=description,
         person=person
     )
+    logger.info("Transaction saved: user_id=%s type=%s amount=%s", update.effective_user.id, t_type, amount)
     if t_type == "income":
-        tx_type = 'Доход'
+        tx_type = "Доход"
     elif t_type == "expense":
-        tx_type = 'Расход'
+        tx_type = "Расход"
     elif t_type == "debt":
-        tx_type = 'Долг'
+        tx_type = "Долг"
 
     await update.message.reply_text(
         f"✅ Сохранено: {tx_type} | {amount}",
         reply_markup=main_keyboard()
     )
+
+
+def build_full_report_text(transactions, title):
+    total_income = 0
+    total_expense = 0
+    total_debt = 0
+
+    text = f"{title}\n\n"
+
+    for t in transactions:
+        t_type, amount, desc, person, created = t
+
+        if t_type == "income":
+            total_income += amount
+            tx_type = "Доход"
+        elif t_type == "expense":
+            total_expense += amount
+            tx_type = "Расход"
+        elif t_type == "debt":
+            total_debt += amount
+            tx_type = "Долг"
+
+        text += f"{created[:10]} | {tx_type} | {amount} | {desc or person}\n"
+
+    text += "\n------\n"
+    text += f"Доходы: {total_income}\n"
+    text += f"Расходы: {total_expense}\n"
+    text += f"Долги: {total_debt}\n"
+
+    return text
+
+
+def build_single_type_text(transactions, title, total_label):
+    total = 0
+
+    text = f"{title}\n\n"
+
+    for t in transactions:
+        _t_type, amount, desc, person, created = t
+        total += amount
+        text += f"{created[:10]} | {amount} | {desc or person}\n"
+
+    text += "\n------\n"
+    text += f"{total_label}: {total}\n"
+
+    return text
+
+
+async def report_last_days(update: Update, context: ContextTypes.DEFAULT_TYPE, days: int = 3):
+    user_id = update.effective_user.id
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days - 1)
+
+    logger.info(
+        "Report last days requested: user_id=%s days=%s start=%s end=%s",
+        user_id,
+        days,
+        start_date,
+        end_date
+    )
+
+    transactions = last_transactions(
+        user_id,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        limit=10
+    )
+
+    if not transactions:
+        logger.info("No transactions for last days report: user_id=%s", user_id)
+        await update.message.reply_text("Нет данных за последние 3 дня.")
+        return
+
+    text = build_full_report_text(transactions, f"📅 Отчёт за {days} дня:")
+    await update.message.reply_text(text)
+
+
+async def report_debts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    logger.info("Debt report requested: user_id=%s", user_id)
+    transactions = last_transactions(user_id, t_type="debt", limit=10)
+
+    if not transactions:
+        logger.info("No debt transactions for report: user_id=%s", user_id)
+        await update.message.reply_text("Нет записей по долгам.")
+        return
+
+    text = build_single_type_text(transactions, "📒 Долги (последние 10):", "Итого долги")
+    await update.message.reply_text(text)
+
+
+async def report_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    logger.info("Income report requested: user_id=%s", user_id)
+    transactions = last_transactions(user_id, t_type="income", limit=10)
+
+    if not transactions:
+        logger.info("No income transactions for report: user_id=%s", user_id)
+        await update.message.reply_text("Нет записей по доходам.")
+        return
+
+    text = build_single_type_text(transactions, "💰 Доходы (последние 10):", "Итого доходы")
+    await update.message.reply_text(text)
 
 
 # --------------------
@@ -146,11 +302,13 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             datetime.strptime(end_date, "%Y-%m-%d")
 
         except:
+            logger.warning("Invalid report date format: user_id=%s args=%s", user_id, context.args)
             await update.message.reply_text(
                 "Формат даты: /report 2026-03-01 2026-03-31"
             )
             return
 
+    logger.info("Report requested: user_id=%s start=%s end=%s", user_id, start_date, end_date)
     transactions = last_transactions(
         user_id,
         start_date=start_date,
@@ -159,36 +317,11 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if not transactions:
+        logger.info("No transactions for report: user_id=%s start=%s end=%s", user_id, start_date, end_date)
         await update.message.reply_text("Нет данных за выбранный период.")
         return
 
-    total_income = 0
-    total_expense = 0
-    total_debt = 0
-
-    text = "📊 Отчёт:\n\n"
-
-    for t in transactions:
-        t_type, amount, desc, person, created = t
-
-        if t_type == "income":
-            total_income += amount
-            tx_type = 'Доход'
-        elif t_type == "expense":
-            total_expense += amount
-            tx_type = 'Расход'
-        elif t_type == "debt":
-            total_debt += amount
-            tx_type = 'Долг'
-
-        text += f"{created[:10]} | {tx_type} | {amount} | {desc or person}\n"
-
-
-    text += "\n------\n"
-    text += f"Доходы: {total_income}\n"
-    text += f"Расходы: {total_expense}\n"
-    text += f"Долги: {total_debt}\n"
-
+    text = build_full_report_text(transactions, "📊 Отчёт:")
     await update.message.reply_text(text)
 
 
@@ -201,9 +334,11 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     transactions = get_transactions(user_id)
 
     if not transactions:
+        logger.info("No transactions to export: user_id=%s", user_id)
         await update.message.reply_text("Нет данных для экспорта.")
         return
 
+    logger.info("Export requested: user_id=%s count=%s", user_id, len(transactions))
     wb = Workbook()
     ws = wb.active
     ws.append(["Тип", "Сумма", "Описание", "Человек", "Дата"])
@@ -214,17 +349,33 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     wb.save(file_name)
 
+    logger.info("Export file created: %s", file_name)
+
 
     await update.message.reply_document(
         document=file_name
     )
 
     os.remove(file_name)
+    logger.info("Export file removed: %s", file_name)
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    update_id = getattr(update, "update_id", None)
+    exc = context.error
+    logger.error(
+        "Unhandled error while processing update_id=%s",
+        update_id,
+        exc_info=(type(exc), exc, exc.__traceback__)
+    )
+
+
 # --------------------
 # Main
 # --------------------
 
 def main():
+    setup_logging()
+    logger.info("Bot starting...")
     init_db()
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -232,8 +383,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_error_handler(on_error)
 
-    print("Bot started...")
+    logger.info("Bot started")
     app.run_polling()
 
 

@@ -1,6 +1,9 @@
 import sqlite3
+import logging
 from config import DB_NAME
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def get_connection():
@@ -8,6 +11,7 @@ def get_connection():
 
 
 def init_db():
+    logger.info("Initializing database: %s", DB_NAME)
     with get_connection() as conn:
         cursor = conn.cursor()
 
@@ -41,6 +45,7 @@ def add_transaction(user_id, t_type, amount, description="", person=None):
             datetime.now().isoformat()
         ))
         conn.commit()
+    logger.info("DB insert: user_id=%s type=%s amount=%s", user_id, t_type, amount)
 
 
 def get_transactions(user_id, start_date=None, end_date=None, t_type=None):
@@ -62,7 +67,9 @@ def get_transactions(user_id, start_date=None, end_date=None, t_type=None):
             query += " AND date(created_at) <= date(?)"
             params.append(end_date)
         cursor.execute(query, params)
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        logger.debug("DB fetch: user_id=%s count=%s", user_id, len(rows))
+        return rows
 
 def last_transactions(user_id, start_date=None, end_date=None, t_type=None, limit = 10):
     with get_connection() as conn:
@@ -85,4 +92,6 @@ def last_transactions(user_id, start_date=None, end_date=None, t_type=None, limi
         query += " ORDER BY created_at DESC LIMIT ? "
         params.append(limit)
         cursor.execute(query, params)
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        logger.debug("DB last fetch: user_id=%s count=%s limit=%s", user_id, len(rows), limit)
+        return rows
