@@ -362,22 +362,26 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Export file removed: %s", file_name)
 
 async def ipaddress(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Получение локального IP адреса (IP от маршрутизатора)
+    # Получение IP сервера (хоста Docker контейнера)
     try:
-        # Для Linux/Docker: получаем IP через hostname -I
         import subprocess
+        result = subprocess.run(['ip', 'route', 'show'], capture_output=True, text=True, timeout=5)
+        host_ip = "Не найден"
+        for line in result.stdout.split('\n'):
+            if 'default via' in line:
+                parts = line.split()
+                host_ip = parts[2]  # IP адрес gateway (сервера)
+                break
+    except Exception as e:
+        host_ip = f"Ошибка: {e}"
+
+    # Получение IP контейнера
+    try:
         result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
         ips = result.stdout.strip().split()
-        local_ip = ips[0] if ips else "Не найден"
+        container_ip = ips[0] if ips else "Не найден"
     except:
-        try:
-            # Альтернатива: подключаемся к внешнему адресу и узнаём свой IP
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-        except Exception as e:
-            local_ip = f"Ошибка: {e}"
+        container_ip = "Не найден"
 
     # Получение глобального IP адреса
     try:
@@ -386,7 +390,7 @@ async def ipaddress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         global_ip = f"Ошибка получения глобального IP: {e}"
 
-    await update.message.reply_text(f"Локальный IP: {local_ip}\nГлобальный IP: {global_ip}")
+    await update.message.reply_text(f"🖥️ IP server: {host_ip}\n🌍 Global IP: {global_ip}\n🐳 IP container: {container_ip}")
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     update_id = getattr(update, "update_id", None)
