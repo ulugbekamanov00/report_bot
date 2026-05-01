@@ -19,6 +19,7 @@ from db import init_db, add_transaction, get_transactions, last_transactions
 from openpyxl import Workbook
 import os
 import socket
+import subprocess
 import requests
 
 logger = logging.getLogger(__name__)
@@ -362,42 +363,45 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Export file removed: %s", file_name)
 
 async def ipaddress(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Получение IP сервера (хоста Docker контейнера)
+    server_ip = None
     try:
-        import subprocess
-        # Пытаемся получить через cat /proc/net/route
-        result = subprocess.run(['cat', '/proc/net/route'], capture_output=True, text=True, timeout=5)
-        host_ip = "Не найден"
-        lines = result.stdout.strip().split('\n')
-        if len(lines) > 1:
-            # Первая строка - заголовок, ищем default route (Destination = 00000000)
-            for line in lines[1:]:
-                parts = line.split()
-                if parts[1] == '00000000':  # default route
-                    gateway_hex = parts[2]
-                    # Конвертируем из hex в IP адрес
-                    gateway_bytes = bytes.fromhex(gateway_hex)
-                    host_ip = '.'.join(str(b) for b in reversed(gateway_bytes))
-                    break
-    except Exception as e:
-        host_ip = f"Ошибка: {e}"
+        try:
+            server_ip = socket.gethostbyname("host.docker.internal")
+        except OSError:
+            pass
 
-    # Получение IP контейнера
+        if not server_ip:
+            result = subprocess.run(
+                ['cat', '/proc/net/route'], capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 3 and parts[1] == '00000000':
+                    gw_hex = parts[2]
+                    gateway_bytes = bytes.fromhex(gw_hex)
+                    server_ip = '.'.join(str(b) for b in reversed(gateway_bytes))
+                    break
+
+        if not server_ip:
+            server_ip = "Не найден"
+    except Exception as e:
+        server_ip = f"Ошибка: {e}"
+
     try:
         result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
         ips = result.stdout.strip().split()
         container_ip = ips[0] if ips else "Не найден"
-    except:
-        container_ip = "Не найден"
-
-    # Получение глобального IP адреса
-    try:
-        response = requests.get('https://api.ipify.org', timeout=5)
-        global_ip = response.text.strip()
     except Exception as e:
-        global_ip = f"Ошибка получения глобального IP: {e}"
+        container_ip = f"Ошибка: {e}"
 
-    await update.message.reply_text(f"🖥️ IP server: {host_ip}\n🌍 Global IP: {global_ip}\n🐳 IP container: {container_ip}")
+    try:
+        global_ip = requests.get('https://api.ipify.org', timeout=5).text.strip()
+    except Exception as e:
+        global_ip = f"Ошибка: {e}"
+
+    await update.message.reply_text(
+        f"🖥️ IP server: {server_ip}\n\n🐳 IP container: {container_ip}\n🌍 Global IP: {global_ip}"
+    )
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     update_id = getattr(update, "update_id", None)
