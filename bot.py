@@ -365,13 +365,20 @@ async def ipaddress(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Получение IP сервера (хоста Docker контейнера)
     try:
         import subprocess
-        result = subprocess.run(['ip', 'route', 'show'], capture_output=True, text=True, timeout=5)
+        # Пытаемся получить через cat /proc/net/route
+        result = subprocess.run(['cat', '/proc/net/route'], capture_output=True, text=True, timeout=5)
         host_ip = "Не найден"
-        for line in result.stdout.split('\n'):
-            if 'default via' in line:
+        lines = result.stdout.strip().split('\n')
+        if len(lines) > 1:
+            # Первая строка - заголовок, ищем default route (Destination = 00000000)
+            for line in lines[1:]:
                 parts = line.split()
-                host_ip = parts[2]  # IP адрес gateway (сервера)
-                break
+                if parts[1] == '00000000':  # default route
+                    gateway_hex = parts[2]
+                    # Конвертируем из hex в IP адрес
+                    gateway_bytes = bytes.fromhex(gateway_hex)
+                    host_ip = '.'.join(str(b) for b in reversed(gateway_bytes))
+                    break
     except Exception as e:
         host_ip = f"Ошибка: {e}"
 
