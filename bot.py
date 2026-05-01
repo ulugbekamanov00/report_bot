@@ -18,6 +18,8 @@ from config import TOKEN
 from db import init_db, add_transaction, get_transactions, last_transactions
 from openpyxl import Workbook
 import os
+import socket
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +361,20 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(file_name)
     logger.info("Export file removed: %s", file_name)
 
+async def ipaddress(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        local_ip = socket.gethostbyname(socket.gethostname())
+    except Exception as e:
+        local_ip = f"Ошибка получения локального IP: {e}"
+
+    try:
+        response = requests.get('https://api.ipify.org', timeout=5)
+        global_ip = response.text.strip()
+    except Exception as e:
+        global_ip = f"Ошибка получения глобального IP: {e}"
+
+    await update.message.reply_text(f"Локальный IP: {local_ip}\nГлобальный IP: {global_ip}")
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     update_id = getattr(update, "update_id", None)
     exc = context.error
@@ -382,6 +398,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("report", report))
+    app.add_handler(CommandHandler("ipaddress", ipaddress))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(on_error)
 
