@@ -362,11 +362,24 @@ async def export_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Export file removed: %s", file_name)
 
 async def ipaddress(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Получение локального IP адреса (IP от маршрутизатора)
     try:
-        local_ip = socket.gethostbyname(socket.gethostname())
-    except Exception as e:
-        local_ip = f"Ошибка получения локального IP: {e}"
+        # Для Linux/Docker: получаем IP через hostname -I
+        import subprocess
+        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
+        ips = result.stdout.strip().split()
+        local_ip = ips[0] if ips else "Не найден"
+    except:
+        try:
+            # Альтернатива: подключаемся к внешнему адресу и узнаём свой IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception as e:
+            local_ip = f"Ошибка: {e}"
 
+    # Получение глобального IP адреса
     try:
         response = requests.get('https://api.ipify.org', timeout=5)
         global_ip = response.text.strip()
